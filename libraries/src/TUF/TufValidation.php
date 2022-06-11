@@ -110,8 +110,6 @@ class TufValidation
 	{
 		$db = Factory::getContainer()->get(DatabaseDriver::class);
 
-		// $db = Factory::getDbo();
-
 		$fileFetcher = GuzzleFileFetcher::createFromUri($this->params['url_prefix'], $this->params['metadata_path'], $this->params['targets_path']);
 		$updater = new Updater(
 			$fileFetcher,
@@ -119,30 +117,22 @@ class TufValidation
 			new DatabaseStorage($db, $this->extensionId)
 		);
 
+		/** @var \Joomla\CMS\Table\Tuf $tuf */
+		$tuf = Table::getInstance('tuf');
+
 		try
 		{
-			// Refresh the data if needed, it will be written inside the DB, then we fetch it afterwards and return it to
-			// the caller
+			// Refresh the data if needed, it will be written inside the DB,
+			// then we fetch it afterwards and return it to the caller
 			$updater->refresh();
-			$query = $db->getQuery(true)
-				->select('targets_json')
-				->from($db->quoteName('#__tuf_metadata', 'map'))
-				->where($db->quoteName('map.id') . ' = :id')
-				->bind(':id', $this->extensionId, ParameterType::INTEGER);
-			$db->setQuery($query);
 
-			$resultArray = (array) $db->loadObject();
+			$targetsJson = $tuf->getTargets($this->extensionId);
 
-			return JsonNormalizer::decode($resultArray['targets_json']);
+			return JsonNormalizer::decode(targetsJson);
 		}
 		catch (FreezeAttackException | MetadataException | SignatureThresholdException | RollbackAttackException $e)
 		{
-			// When the validation fails, for example when one file is written but the others don't, we roll back everything
-			// and cancel the update
-			$query = $db->getQuery(true)
-				->delete('#__tuf_metadata')
-				->columns(['snapshot_json', 'targets_json', 'timestamp_json']);
-			$db->setQuery($query);
+			$tuf->removeMetadata();
 
 			return null;
 		}
